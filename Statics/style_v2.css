@@ -1,6 +1,11 @@
 body {
     font-family: Arial, sans-serif;
 }
+#text{
+    display: flex;
+   justify-content: center;
+    
+}
 
 #chat {
     width: 400px;
