@@ -1,70 +1,97 @@
 const socket = io();
 let username = null;
 
-// Pede o nome do usuário ao conectar
 socket.on('connect', () => {
     console.log('Conectado ao servidor Socket.IO');
     username = prompt("Qual seu nome?") || 'Anon';
-    loadMessages();  // Carrega mensagens salvas localmente
+    socket.emit('set_username', { name: username });
+    loadMessages(); // Carrega mensagens ao conectar
 });
 
-// Função para adicionar mensagem à lista e salvar localmente
-function addMessage(msg) {
+function addMessageToDisplay(msg, isSentByMe = false) {
     const messages = document.getElementById('messages');
     const item = document.createElement('li');
     item.textContent = msg;
+    item.classList.add(isSentByMe ? 'sent' : 'received');
     messages.appendChild(item);
     messages.scrollTop = messages.scrollHeight;
+}
 
-    // Salvar no localStorage
+function saveMessageToLocalStorage(msgText, sentByMe) {
     let savedMessages = JSON.parse(localStorage.getItem('chatMessages')) || [];
-    savedMessages.push(msg);
+    savedMessages.push({ text: msgText, sentByMe: sentByMe });
     localStorage.setItem('chatMessages', JSON.stringify(savedMessages));
 }
 
-// Carrega mensagens do localStorage ao abrir
 function loadMessages() {
     const savedMessages = JSON.parse(localStorage.getItem('chatMessages')) || [];
     const messages = document.getElementById('messages');
-    savedMessages.forEach((msg) => {
+    messages.innerHTML = '';
+    savedMessages.forEach((msgObj) => {
         const item = document.createElement('li');
-        item.textContent = msg;
+        item.textContent = msgObj.text;
+        item.classList.add(msgObj.sentByMe ? 'sent' : 'received');
         messages.appendChild(item);
     });
     messages.scrollTop = messages.scrollHeight;
 }
 
-// Recebimento de mensagens
-socket.on('message', (msg) => {
-    addMessage(msg);
+socket.on('success', (data) => {
+    console.log(data.success);
 });
 
-// Envio de mensagens
+socket.on('error', (data) => {
+    console.error('Erro do servidor:', data.error);
+    alert('Erro: ' + data.error);
+});
+
+socket.on('message', (msg) => {
+    console.log('Mensagem recebida:', msg);
+    if (!msg || !msg.message) {
+        console.error('Mensagem vazia ou inválida:', msg);
+        return;
+    }
+
+    const isSentByMe = msg.name === username;
+
+   
+    if (isSentByMe) {
+        return;
+    }
+
+    const name = msg.name || 'Desconhecido';
+    const time = msg.time || '00:00';
+    const messageText = msg.message || '[Mensagem vazia]';
+    const formatted_msg = `[${time}] ${name}: ${messageText}`;
+
+    addMessageToDisplay(formatted_msg, false);
+    saveMessageToLocalStorage(formatted_msg, false);
+});
+
+
 function sendMessage() {
     const input = document.getElementById('message_input');
     const message = input.value.trim();
-    
+
     if (message) {
         const userAgent = navigator.userAgent;
         const now = new Date();
-        const hours = String(now.getHours()).padStart(2, '0');
-        const minutes = String(now.getMinutes()).padStart(2, '0');
-        const timestamp = `${hours}:${minutes}`;
+        const timestamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const messageData = { name: username, device: userAgent, message: message, time: timestamp };
 
-        // Envia objeto JSON com nome, userAgent, mensagem
-        socket.send({
-            name: username,
-            device: userAgent,
-            message: message,
-            time: timestamp  // caso queira processar no servidor também
-        });
+        // Enviar para o servidor
+        socket.emit('message', messageData);
+
+        // Exibir e salvar localmente imediatamente
+        const formatted_msg = `[${timestamp}] ${username}: ${message}`;
+        addMessageToDisplay(formatted_msg, true);
+        saveMessageToLocalStorage(formatted_msg, true);
 
         input.value = '';
         input.focus();
     }
 }
 
-// Enviar ao pressionar Enter
 document.getElementById('message_input').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
         sendMessage();
