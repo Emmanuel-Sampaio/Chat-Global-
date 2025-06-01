@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Chat Global</title>
+    <link rel="stylesheet" href="/Statics/style_v2.css">
+</head>
+<body>
+    <h1>Chat Global (Flask + Socket.IO)</h1>
+    <div id="chat">
+        <ul id="messages"></ul>
+        <div class="input-container">
+            <input id="message_input" class="message_input" autocomplete="off" placeholder="Digite sua mensagem...">
+            <button onclick="sendMessage()">Enviar</button>
+        </div>
+    </div>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="/Statics/chat.js"></script>
+</body>
+</html>
