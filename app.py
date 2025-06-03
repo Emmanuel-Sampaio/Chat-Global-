@@ -1,75 +1,63 @@
-from flask import Flask, render_template, request, send_from_directory
-from flask_socketio import SocketIO, send, disconnect
+import asyncio
+import websockets
+import json
 from datetime import datetime
 
-app = Flask(__name__, static_folder='Statics')
-socketio = SocketIO(app, cors_allowed_origins="*")
+connected = set()
+usernames = dict()
 
-connected_users = set()
-user_sid_map = {}
+async def handler(websocket):
+    connected.add(websocket)
+    try:
+        while True:
+            message = await websocket.recv()
+            data = json.loads(message)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+            if websocket not in usernames:
+                if data.get("type") == "set_username":
+                    name = data.get("name")
+                    if not name or name in usernames.values():
+                        await websocket.send(json.dumps({
+                            "type": "error",
+                            "error": "Esse nome já foi cadastrado, digite um novo"
+                        }))
+                        continue
+                    usernames[websocket] = name
+                    await websocket.send(json.dumps({
+                        "type": "success",
+                        "success": f'Nome "{name}" registrado.'
+                    }))
+                    print(f'Usuário registrado: {name}')
+                else:
+                    await websocket.send(json.dumps({
+                        "type": "error",
+                        "error": "Registre um nome primeiro."
+                    }))
+            else:
+                if data.get("type") == "message":
+                    name = usernames[websocket]
+                    msg = data.get("message", "")
+                    timestamp = datetime.now().strftime('%H:%M')
+                    print(f'[{timestamp}] {name}: {msg}')
+                    broadcast_data = json.dumps({
+                        "type": "message",
+                        "name": name,
+                        "message": msg,
+                        "time": timestamp
+                    })
+                    await asyncio.gather(*[conn.send(broadcast_data) for conn in connected])
+    except websockets.exceptions.ConnectionClosed:
+        pass
+    finally:
+        connected.discard(websocket)
+        if websocket in usernames:
+            print(f'Usuário desconectado: {usernames[websocket]}')
+            del usernames[websocket]
 
-@app.route('/Statics/<path:filename>')
-def custom_static(filename):
-    return send_from_directory('Statics', filename)
+async def main():
+    print("Servidor WebSocket rodando em ws://0.0.0.0:5001")
+    async with websockets.serve(handler, "0.0.0.0", 5001):
+        await asyncio.Future()
 
-@socketio.on('connect')
-def on_connect():
-    print(f'Cliente conectado: {request.sid}')
-
-@socketio.on('disconnect')
-def on_disconnect():
-    user_to_remove = None
-    for user, sid in user_sid_map.items():
-        if sid == request.sid:
-            user_to_remove = user
-            break
-    if user_to_remove:
-        connected_users.remove(user_to_remove)
-        del user_sid_map[user_to_remove]
-        print(f'Usuário {user_to_remove} desconectado e removido da lista.')
-
-@socketio.on('set_username')
-def handle_set_username(data):
-    name = data.get('name')
-    if not name:
-        send({'error': 'Nome inválido.'}, to=request.sid)
-        disconnect()
-        return
-
-    if name in connected_users:
-        send({'error': f'Nome "{name}" já está em uso!'}, to=request.sid)
-        disconnect()
-        return
-
-    connected_users.add(name)
-    user_sid_map[name] = request.sid
-    send({'success': f'Nome "{name}" registrado com sucesso.'}, to=request.sid)
-    print(f'Usuário registrado: {name} [{request.sid}]')
-
-@socketio.on('message')
-def handle_message(data):
-    name = data.get('name')
-    if name not in connected_users:
-        send({'error': 'Você precisa registrar um nome válido antes de enviar mensagens.'}, to=request.sid)
-        disconnect()
-        return
-
-    message = data.get('message', '')
-    device = data.get('device', 'Unknown device')
-    timestamp = datetime.now().strftime('%H:%M')
-
-    print(f'[{timestamp}] "{message}" de {name}  [ID: {request.sid}]')
-
-    send({
-        'name': name,
-        'device': device,
-        'message': message,
-        'time': timestamp
-    }, broadcast=True, include_self=True)
-
-if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5001)
+if __name__ == "__main__":
+    asyncio.run(main())
